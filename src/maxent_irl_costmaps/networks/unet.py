@@ -137,10 +137,10 @@ class UNet(nn.Module):
             feature_cache.append(_x)
         
         #1d-conv
-#        xshape = _x.shape
-#        _x = _x.view(*_x.shape[:-2], -1)
-#        _x = self.channel_wise_conv(_x)
-#        _x = _x.view(xshape)
+        xshape = _x.shape
+        _x = _x.view(*_x.shape[:-2], -1)
+        _x = self.channel_wise_conv(_x)
+        _x = _x.view(xshape)
         _x = self.conv1d.forward(_x)
 
         #Upsample
