@@ -1,0 +1,98 @@
+experiment:
+    save_to: /home/atv/Desktop/experiments/yamaha_maxent_irl/mppi_gan_experiments
+    name: throttle_kbm_base_lsgan
+    device: cuda
+    epochs: 10
+    steps_per_epoch: -1
+    save_every: 1
+
+algo:
+    type: EBMMPPI
+    params:
+        mppi_itrs: 10
+        batch_size: 12
+
+dataset:
+    type: MaxEntIRLDataset
+    params:
+        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/rosbags_test
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/torch_test_h75
+        map_features_topic: /local_gridmap
+        odom_topic: /integrated_to_init
+        image_topic: /multisense/left/image_rect_color
+        horizon: 75
+        feature_keys:
+            - height_low
+            - height_mean
+            - height_high
+            - height_max
+            - diff
+            - terrain
+            - terrain_slope
+            - roughness
+            - SVD1
+            - SVD2
+            - SVD3
+            - unknown
+            - ego_speed
+
+network:
+    type: MLP
+    params:
+        insize: [1350]
+        outsize: [75]
+        hiddens: [128, ]
+
+netopt:
+    type: AdamW
+    params: {}
+
+cost_function:
+    terms:
+        - type: ShapedEBMCost
+          weight: 15.0
+          params:
+
+        - type: EuclideanDistanceToGoal
+          weight: 10.0
+          params:
+
+model:
+    type: SteerSetpointThrottleKBM
+    params:
+        L: 3.0
+        throttle_lim: [0., 1.]
+        steer_lim: [-0.52, 0.52]
+        steer_rate_lim: 0.2
+        k_throttle: 1.0
+        k_drag: 0.1
+        k_fric: 0.1
+
+#trajopt:
+#    type: BatchMPPI
+#    params: 
+#        num_samples: 2048
+#        control_params:
+#            sys_noise: [0.1, 0.1]
+#            temperature: 0.04
+#            use_ou: True
+#            ou_alpha: 0.9
+#            ou_scale: 10.0
+#            d_ou_scale: 2.0
+
+trajopt:
+    type: BatchActlibMPPI
+    actlib_path: '/home/atv/physics_atv_ws/src/control/torch_mpc/scripts/experiments/actlib_experiments/act_clusters.pt'
+    actlib_n: 256
+    params: 
+        num_samples: 2048
+        num_safe_timesteps: 0
+        control_params:
+            sys_noise: [0.1, 0.1]
+            temperature: 0.04
+            use_ou: True
+            ou_alpha: 0.9
+            ou_scale: 10.0
+            d_ou_scale: 2.0
+
+metrics:

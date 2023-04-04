@@ -21,15 +21,11 @@ from maxent_irl_costmaps.utils import get_state_visitations, get_speedmap
 from maxent_irl_costmaps.networks.mlp import MLP
 from maxent_irl_costmaps.networks.resnet import ResnetCostmapCNN
 
-class MPPIIRLSpeedmaps:
+class MPPIIRLConstraintmaps:
     """
-    This is the same as MPPI IRL, but in addition to the IRL, also learn a speed map via MLE to expert speed
-    Speedmap Learning:
-        1. Run the network to get the per-cell speed distribution
-        2. Create a speed label for each cell that the expert visited (have to register speeds/traj onto the map)
-        3. Compute a masked MLE for the cells that were visited
-        4. backward pass w/ the IRL grad
-        5. win
+    Attempt to learn constraints from IRL in addition to cost.
+    From Scobee et al, the general idea is to call states with maximal proabability mass not in the expert distribution a constraint
+    Take inspiration from https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9827405&tag=1, where we train a predictor
 
     MPPI IRL:
         Costmap learner that uses expert data + MPPI optimization to learn costmaps.
@@ -66,7 +62,8 @@ class MPPIIRLSpeedmaps:
         self.speed_coeff = speed_coeff
         self.grad_clip = grad_clip
 
-        self.constraint_threshold = -1e10
+        self.constraint_threshold = 0.
+        self.set_constraint_threshold()
 
         self.itr = 0
         self.device = device
@@ -85,6 +82,7 @@ class MPPIIRLSpeedmaps:
             with torch.no_grad():
                 res = self.network.forward(batch['map_features'])
             costmaps = res['costmap'][:, 0]
+            constraint_probs = res['constraint_logits'][:, 0].sigmoid()
 
             expert_traj = batch['traj']
 
@@ -104,16 +102,17 @@ class MPPIIRLSpeedmaps:
             expert_state_visitations = torch.stack(expert_state_visitations, dim=0)
 
             mask = (expert_state_visitations > 0)
-            expert_constraint_vals.append(costmaps[mask])
+            expert_constraint_vals.append(constraint_probs[mask])
 
-        expert_constraint_vals = torch.cat(expert_constraint_vals, dim=0).cpu()
+        expert_constraint_vals = torch.cat(expert_constraint_vals, dim=0)
 
         #TODO: dont hardcode the quantile
-        self.constraint_threshold = torch.quantile(expert_constraint_vals, 0.99).item()
+        self.constraint_threshold = torch.quantile(expert_constraint_vals, 0.95).item()
         print('thresh = {:.4f}'.format(self.constraint_threshold))
 
     def update(self, n=-1):
         self.itr += 1
+
         dl = DataLoader(self.expert_dataset, batch_size=self.batch_size, shuffle=True)
         for i, batch in enumerate(dl):
             if n > -1 and i >= n:
@@ -126,13 +125,14 @@ class MPPIIRLSpeedmaps:
             print('{}/{}'.format(i+1, int(len(self.expert_dataset)/self.batch_size)), end='\r')
             self.gradient_step(batch)
 
+        self.set_constraint_threshold()
+
         print('_____ITR {}_____'.format(self.itr))
 
     def gradient_step(self, batch):
         assert batch['metadata']['resolution'].std() < 1e-4, "got mutliple resolutions in a batch, which we currently don't support"
 
         grads = []
-        speed_loss = []
 
         efc = []
         lfc = []
@@ -144,7 +144,8 @@ class MPPIIRLSpeedmaps:
         #first generate all the costmaps
         res = self.network.forward(batch['map_features'])
         costmaps = res['costmap'][:, 0]
-        speedmaps = res['speedmap']
+        constraint_probs = res['constraint_logits'][:, 0].sigmoid()
+        constraints = constraint_probs > self.constraint_threshold
 
         #initialize metadata for cost function
         map_params = batch['metadata']
@@ -156,14 +157,14 @@ class MPPIIRLSpeedmaps:
         initial_states = expert_traj[:, 0]
         x0 = {
             'state': initial_states,
-            'steer_angle': batch['steer'][:, [0]] if 'steer' in batch.keys() else torch.zeros(initial_states.shape[0], 1, device=initial_states.device)
+            'steer_angle': batch['steer'][:, [0]] if 'steer' in batch.keys() else torch.zeros(initial_states.shape[0], device=initial_states.device)
         }
         x = self.mppi.model.get_observations(x0)
 
         #set up the solver
         self.mppi.reset()
         self.mppi.cost_fn.data['goals'] = goals
-        self.mppi.cost_fn.data['costmap'] = costmaps
+        self.mppi.cost_fn.data['costmap'] = costmaps + 1e10 * constraints
         self.mppi.cost_fn.data['costmap_metadata'] = map_params
 
         #run MPPI
@@ -196,28 +197,26 @@ class MPPIIRLSpeedmaps:
         learner_state_visitations = torch.stack(learner_state_visitations, dim=0)
         expert_state_visitations = torch.stack(expert_state_visitations, dim=0)
 
+        ## constraints here ##
+
+        #non constraint labels are expert state visitations ##
+        non_constraint_labels = (expert_state_visitations > 0).detach()
+
+        #constraint labels are learner but not expert
+        constraint_labels = ((learner_state_visitations > 0.).detach() & ~non_constraint_labels)
+
+        #only propagate gradients in these states
+        constraint_mask = non_constraint_labels | constraint_labels
+        constraint_targets = torch.zeros_like(constraint_mask)
+        constraint_targets[constraint_labels] = 1.
+
+        constraint_bce = torch.nn.functional.binary_cross_entropy(constraint_probs, constraint_labels.float(), reduction='none')
+        constraint_loss = constraint_bce[constraint_mask].mean()
+
         grads = (expert_state_visitations - learner_state_visitations) / trajs.shape[0]
 
-        #Speedmaps here:
-        expert_speedmaps = []
-        for bi in range(trajs.shape[0]):
-            map_params_b = {
-                'resolution': batch['metadata']['resolution'].mean().item(),
-                'height': batch['metadata']['height'].mean().item(),
-                'width': batch['metadata']['width'].mean().item(),
-                'origin': batch['metadata']['origin'][bi]
-            }
-            esm = get_speedmap(expert_traj[bi].unsqueeze(0), map_params_b).view(speedmaps.loc[bi].shape)
-            expert_speedmaps.append(esm)
-
-        expert_speedmaps = torch.stack(expert_speedmaps, dim=0)
-
-        mask = (expert_speedmaps > 1e-2) #only need the cells that the expert drove in
-        ll = -speedmaps.log_prob(expert_speedmaps)[mask]
-        speed_loss = ll.mean() * self.speed_coeff
-
-#        print('IRL GRAD:   {:.4f}'.format(torch.linalg.norm(grads).detach().cpu().item()))
-#        print('SPEED LOSS: {:.4f}'.format(speed_loss.detach().item()))
+        print('IRL GRAD:   {:.4f}'.format(torch.linalg.norm(grads).detach().cpu().item()))
+        print('CONSTRAINT LOSS: {:.4f}'.format(constraint_loss.detach().item()))
 
         #add regularization
         reg = self.reg_coeff * costmaps
@@ -226,7 +225,7 @@ class MPPIIRLSpeedmaps:
         # I think we need two backward passes through the computation graph.
         self.network_opt.zero_grad()
         costmaps.backward(gradient=(grads + reg), retain_graph=True)
-        speed_loss.backward()
+        constraint_loss.backward()
 
         torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.grad_clip)
         self.network_opt.step()
@@ -251,7 +250,8 @@ class MPPIIRLSpeedmaps:
             #resnet cnn
             res = self.network.forward(map_features)
             costmap = res['costmap'][:, 0]
-            speedmap = torch.distributions.Normal(loc=res['speedmap'].loc, scale=res['speedmap'].scale)
+            constraint_probs = res['constraint_logits'][:, 0].sigmoid()
+            constraints = constraint_probs > self.constraint_threshold
 
             #initialize solver
             initial_state = expert_traj[0]
@@ -269,7 +269,7 @@ class MPPIIRLSpeedmaps:
 
             self.mppi.reset()
             self.mppi.cost_fn.data['goals'] = goals
-            self.mppi.cost_fn.data['costmap'] = costmap
+            self.mppi.cost_fn.data['costmap'] = costmap + constraints * 1e10
             self.mppi.cost_fn.data['costmap_metadata'] = map_params
 
             #solve for traj
@@ -287,10 +287,10 @@ class MPPIIRLSpeedmaps:
             
             axs[0].imshow(data['image'].permute(1, 2, 0)[:, :, [2, 1, 0]].cpu())
             axs[1].imshow(map_features[tidx][idx].cpu(), origin='lower', cmap='gray', extent=(xmin, xmax, ymin, ymax))
-            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax))
+            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmin=0., vmax=30.)
 #            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax))
-            m2 = axs[4].imshow(speedmap.loc[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
-            m3 = axs[5].imshow(speedmap.scale[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
+            m2 = axs[4].imshow(constraint_probs[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
+            m3 = axs[5].imshow(constraints[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
 
             axs[1].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
             axs[2].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y')
@@ -310,11 +310,11 @@ class MPPIIRLSpeedmaps:
             axs[3].plot(times, l_speeds, label='learner speed', c='g')
 
             axs[0].set_title('FPV')
-            axs[1].set_title('heightmap high')
+            axs[1].set_title('heightmap high (learner_cost = {:.2f})'.format(self.mppi.last_cost[tidx]))
             axs[2].set_title('irl cost (clipped)')
             axs[3].set_title('speed')
-            axs[4].set_title('speedmap mean')
-            axs[5].set_title('speedmap std')
+            axs[4].set_title('constraint probs')
+            axs[5].set_title('constraints')
 
             for i in [1, 2, 4, 5]:
                 axs[i].set_xlabel('X(m)')

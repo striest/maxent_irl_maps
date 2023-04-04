@@ -7,17 +7,25 @@ import torch
 import matplotlib.pyplot as plt
 
 from torch_mpc.models.steer_setpoint_kbm import SteerSetpointKBM
+from torch_mpc.models.steer_setpoint_throttle_kbm import SteerSetpointThrottleKBM
 from torch_mpc.models.skid_steer import SkidSteer
 
 from torch_mpc.algos.batch_mppi import BatchMPPI
+from torch_mpc.algos.batch_actlib_mppi import BatchActlibMPPI
 
 from torch_mpc.cost_functions.generic_cost_function import CostFunction
 from torch_mpc.cost_functions.cost_terms.euclidean_distance_to_goal import EuclideanDistanceToGoal
 from torch_mpc.cost_functions.cost_terms.costmap_projection import CostmapProjection
+from torch_mpc.cost_functions.cost_terms.ebm import EBMCost, ShapedEBMCost
 
 from maxent_irl_costmaps.algos.mppi_irl_speedmaps import MPPIIRLSpeedmaps
+from maxent_irl_costmaps.algos.mppi_irl_constraintmaps import MPPIIRLConstraintmaps
+from maxent_irl_costmaps.algos.ebm_mppi import EBMMPPI
 
+from maxent_irl_costmaps.networks.mlp import MLP
 from maxent_irl_costmaps.networks.resnet import ResnetCostmapCNN, ResnetCostmapSpeedmapCNN, ResnetCostmapSpeedmapCNNEnsemble, ResnetCostmapSpeedmapCNNEnsemble2, LinearCostmapSpeedmapEnsemble2
+from maxent_irl_costmaps.networks.constraint_resnet import ResnetCostmapConstraintmapCNNEnsemble
+from maxent_irl_costmaps.networks.fourier_resnet import FourierResnetCostmapSpeedmapCNNEnsemble2
 from maxent_irl_costmaps.networks.unet import UNet
 
 from maxent_irl_costmaps.dataset.maxent_irl_dataset import MaxEntIRLDataset
@@ -99,6 +107,18 @@ def setup_experiment(fp):
             **network_params['params']
         ).to(device)
 
+    elif network_params['type'] == 'ResnetCostmapConstraintmapCNNEnsemble':
+        res['network'] = ResnetCostmapConstraintmapCNNEnsemble(
+            in_channels = len(res['dataset'].feature_keys),
+            **network_params['params']
+        ).to(device)
+
+    elif network_params['type'] == 'FourierResnetCostmapSpeedmapCNNEnsemble2':
+        res['network'] = FourierResnetCostmapSpeedmapCNNEnsemble2(
+            in_channels = len(res['dataset'].feature_keys),
+            **network_params['params']
+        ).to(device)
+
     elif network_params['type'] == 'UNet':
         channels = len(res['dataset'].feature_keys)
         nx = int(res['dataset'].metadata['width'] / res['dataset'].metadata['resolution'])
@@ -108,6 +128,9 @@ def setup_experiment(fp):
             outsize = [1, nx, ny],
             **network_params['params']
         )
+
+    elif network_params['type'] == 'MLP':
+        res['network'] = MLP(**network_params['params'])
     else:
         print('Unsupported network type {}'.format(network_params['type']))
         exit(1)
@@ -116,7 +139,7 @@ def setup_experiment(fp):
     netopt_params = experiment_dict['netopt']
     if netopt_params['type'] == 'Adam':
         res['netopt'] = torch.optim.Adam(res['network'].parameters(), **netopt_params['params'])
-    if netopt_params['type'] == 'AdamW':
+    elif netopt_params['type'] == 'AdamW':
         res['netopt'] = torch.optim.AdamW(res['network'].parameters(), **netopt_params['params'])
     else:
         print('Unsupported netopt type {}'.format(netopt_params['type']))
@@ -126,6 +149,8 @@ def setup_experiment(fp):
     model_params = experiment_dict['model']
     if model_params['type'] == 'SteerSetpointKBM':
         res['model'] = SteerSetpointKBM(**model_params['params']).to(device)
+    elif model_params['type'] == 'SteerSetpointThrottleKBM':
+        res['model'] = SteerSetpointThrottleKBM(**model_params['params']).to(device)
     elif model_params['type'] == 'SkidSteer':
         res['model'] = SkidSteer(**model_params['params']).to(device)
     else:
@@ -148,8 +173,18 @@ def setup_experiment(fp):
                 term['weight'],
                 CostmapProjection(**params)
             ))
+        elif term['type'] == 'EBMCost':
+            terms.append((
+                term['weight'],
+                EBMCost(ebm=res['network'], **params)
+            ))
+        elif term['type'] == 'ShapedEBMCost':
+            terms.append((
+                term['weight'],
+                ShapedEBMCost(ebm=res['network'], **params)
+            ))
         else:
-            print('Unsupported cost term type {}'.format(cost_function_params['type']))
+            print('Unsupported cost term type {}'.format(term['type']))
             exit(1)
     
     res['cost_function'] = CostFunction(
@@ -162,6 +197,17 @@ def setup_experiment(fp):
         res['trajopt'] = BatchMPPI(
             model = res['model'],
             cost_fn = res['cost_function'],
+            num_timesteps = res['dataset'].horizon,
+            batch_size = experiment_dict['algo']['params']['batch_size'],
+            **trajopt_params['params']
+        ).to(device)
+    elif trajopt_params['type'] == 'BatchActlibMPPI':
+        actlib = torch.load(trajopt_params['actlib_path'])
+        actlib = actlib[:trajopt_params['actlib_n']]
+        res['trajopt'] = BatchActlibMPPI(
+            model = res['model'],
+            cost_fn = res['cost_function'],
+            actlib=actlib,
             num_timesteps = res['dataset'].horizon,
             batch_size = experiment_dict['algo']['params']['batch_size'],
             **trajopt_params['params']
@@ -189,6 +235,26 @@ def setup_experiment(fp):
             mppi = res['trajopt'],
             **algo_params['params']
         ).to(device)
+
+    elif algo_params['type'] == 'MPPIIRLConstraintmaps':
+        res['algo'] = MPPIIRLConstraintmaps(
+            network = res['network'],
+            opt = res['netopt'],
+            expert_dataset = res['dataset'],
+            mppi = res['trajopt'],
+            **algo_params['params']
+        ).to(device)
+    elif algo_params['type'] == 'EBMMPPI':
+        res['algo'] = EBMMPPI(
+            network = res['network'],
+            opt = res['netopt'],
+            expert_dataset = res['dataset'],
+            mppi = res['trajopt'],
+            **algo_params['params']
+        ).to(device)
+    else:
+        print('Unsupported algo type {}'.format(algo_params['type']))
+        exit(1)
 
     #setup experiment
     experiment_params = experiment_dict['experiment']

@@ -31,13 +31,16 @@ class Experiment:
         maybe_mkdir(self.base_fp, True)
 
     def run(self):
-        for i in range(0):
+#        for i in range(5):
+#            self.algo.expert_dataset.visualize()
+#            plt.show()
+
+        for i in range(5):
             self.algo.visualize()
             plt.show()
 
         for e in range(self.epochs):
             #TODO: wrap the learning here
-
             self.algo.update(self.steps_per_epoch)
 
             if e == 0:

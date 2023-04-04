@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from maxent_irl_costmaps.networks.mlp import MLP
-from maxent_irl_costmaps.networks.misc import ScaledSigmoid, Exponential
+from maxent_irl_costmaps.networks.misc import ScaledSigmoid, Exponential, ShiftedELU
 
 """
 A collection of basic CNN blocks to try.
@@ -27,6 +27,8 @@ class ResnetCostmapSpeedmapCNNEnsemble2(nn.Module):
             hidden_activation = nn.Tanh
         elif hidden_activation == 'relu':
             hidden_activation = nn.ReLU
+        elif hidden_activation == 'elu':
+            hidden_activation = nn.ELU
 
         self.ensemble_dim = ensemble_dim
 
@@ -47,6 +49,8 @@ class ResnetCostmapSpeedmapCNNEnsemble2(nn.Module):
             self.activation = ScaledSigmoid(scale=activation_scale)
         elif activation_type == 'exponential':
             self.activation = Exponential(scale=activation_scale)
+        elif activation_type == 'shifted_elu':
+            self.activation = ShiftedELU()
         elif activation_type == 'relu':
             self.activation = torch.nn.ReLU()
         elif activation_type == 'none':

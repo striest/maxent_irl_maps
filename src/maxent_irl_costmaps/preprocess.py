@@ -184,7 +184,8 @@ def load_data(bag_fp, map_features_topic, odom_topic, image_topic, horizon, dt, 
         for k,v in zip(map_features.layers, map_features.data):
             #temp hack bc I don't like this feature.
 #            if k not in ['roughness', 'height_high']:
-            if 'npts' in k:
+#            if 'npts' in k:
+            if False:
                 continue
 #                data = np.array(v.data).reshape(mf_nx, mf_ny)[::-1, ::-1]
 #                data[data > 0] = np.log(data[data > 0])

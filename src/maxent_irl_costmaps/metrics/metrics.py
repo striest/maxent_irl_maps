@@ -1,16 +1,18 @@
 """
 Collection of metrics for evaluating performance of mexent IRL
 """
-
+import copy
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+
+from torch_mpc.cost_functions.cost_terms.utils import value_iteration
 
 from maxent_irl_costmaps.dataset.global_state_visitation_buffer import GlobalStateVisitationBuffer
 from maxent_irl_costmaps.networks.baseline_lethal_height import LethalHeightCostmap
 from maxent_irl_costmaps.utils import get_state_visitations, quat_to_yaw
 
-def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True):
+def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, vf_downsample=-1, viz=True):
     """
     Wrapper method that generates metrics for an experiment
     Args:
@@ -25,9 +27,10 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
 
     fig, axs = plt.subplots(2, 3, figsize=(18, 12))
     axs = axs.flatten()
-
     with torch.no_grad():
         for i in range(0, len(experiment.expert_dataset), frame_skip):
+#            fig, axs = plt.subplots(2, 3, figsize=(18, 12))
+#            axs = axs.flatten()
             print('{}/{}'.format(i+1, len(experiment.expert_dataset)), end='\r')
 
             data = experiment.expert_dataset[i]
@@ -41,8 +44,6 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             ymax = ymin + metadata['height'].cpu()
             expert_traj = data['traj']
 
-            #compute costmap
-
             #ensemble
             if hasattr(experiment.network, 'ensemble_forward'):
                 #save GPU space in batch (they're copied anyways)
@@ -54,6 +55,15 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             else:
                 res = experiment.network.forward(map_features)
                 costmap = res['costmap'][:, 0]
+
+            #set up constraints
+            if hasattr(experiment, 'constraint_threshold') and experiment.constraint_threshold > -1e10:
+                if 'constraint_logits' in res.keys():
+                    constraint_probs = res['constraint_logits'].sigmoid().mean(dim=1)[0]
+                    costmap += 1e10 * (constraint_probs > experiment.constraint_threshold).float()
+                else:
+                    costmap += 1e10 * (costmap > experiment.constraint_threshold).float()
+
 
             #initialize solver
             initial_state = expert_traj[0]
@@ -74,6 +84,15 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             experiment.mppi.cost_fn.data['costmap'] = costmap
             experiment.mppi.cost_fn.data['costmap_metadata'] = map_params
 
+            #set up value function
+            if vf_downsample > 0:
+                downsample_costmap = torch.nn.functional.max_pool2d(costmap, vf_downsample)
+                valuemap_metadata = copy.deepcopy(map_params)
+                valuemap_metadata['resolution'] *= vf_downsample
+                valuemap = value_iteration(downsample_costmap, valuemap_metadata, goals, gamma=0.95)
+                experiment.mppi.cost_fn.data['valuemap'] = valuemap
+                experiment.mppi.cost_fn.data['valuemap_metadata'] = valuemap_metadata
+
             #solve for traj
             for ii in range(experiment.mppi_itrs):
                 experiment.mppi.get_control(x, step=False)
@@ -87,11 +106,12 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             learner_state_visitations = get_state_visitations(trajs, metadata, weights)
             expert_state_visitations = get_state_visitations(expert_traj.unsqueeze(0), metadata)
 
+            """
             #GET GLOBAL STATE VISITATIONS
             gps_x0 = data['gps_traj'][[0]]
             expert_x0 = expert_traj[[0]]
 
-            #calculate the rotation offset to account for frame diff in SO and GPS
+            #calculate the rotation offset to account for frame diff in SO and GPS/
             yaw_offset = quat_to_yaw(expert_x0[:, 3:7]) - quat_to_yaw(gps_x0[:, 3:7])
             poses = torch.stack([
                 gps_x0[:, 0],
@@ -107,6 +127,8 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             }
 
             global_state_visitations = gsv.get_state_visitations(poses, crop_params, local=True)[0]
+            """
+            global_state_visitations = expert_state_visitations
 
             for k, fn in metric_fns.items():
                 metrics_res[k].append(fn(costmap, expert_traj, traj, expert_state_visitations, learner_state_visitations, global_state_visitations).cpu().item())
@@ -127,15 +149,29 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             axs[0].imshow(data['image'].permute(1, 2, 0)[:, :, [2, 1, 0]].cpu())
             axs[0].set_title('FPV')
 
-            axs[1].imshow(costmap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmax=10.)
+            axs[1].imshow(costmap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmax=3.)
             axs[1].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
             axs[1].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g', label='learner')
             axs[1].set_title('costmap')
             axs[1].legend()
 
-            axs[2].imshow(gsv.data.T.cpu(), origin='lower', extent=(gxmin, gxmax, gymin, gymax), vmin=0., vmax=5.)
+            idx = experiment.expert_dataset.feature_keys.index('npts')
+            axs[2].imshow(map_features[0, idx].cpu(), origin='lower', cmap='gray', extent=(xmin, xmax, ymin, ymax))
+            axs[2].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
+            axs[2].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g', label='learner')
+            axs[2].set_title('costmap')
+            axs[2].legend()
+
+            if vf_downsample > 0:
+                axs[2].imshow(valuemap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax))
+                axs[2].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
+                axs[2].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g', label='learner')
+                axs[2].set_title('valuemap')
+                axs[2].legend()
+
+#            axs[2].imshow(gsv.data.T.cpu(), origin='lower', extent=(gxmin, gxmax, gymin, gymax), vmin=0., vmax=5.)
 #            axs[2].scatter(gps_x0[0, 0].cpu(), gps_x0[0, 1].cpu(), color='r', marker='>', s=5.)
-            axs[2].set_title('global visitations')
+#            axs[2].set_title('global visitations')
 
             axs[-3].imshow(learner_state_visitations.cpu(), origin='lower', extent=(xmin, xmax, ymin, ymax))
             axs[-3].set_title('learner SV')
@@ -155,10 +191,10 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             plt.suptitle(title)
 
             if viz:
-#                plt.show(block=False)
-#                plt.pause(1e-2)
+#                plt.show()
+                plt.pause(1e-2)
 
-                plt.savefig('res/{:05d}.png'.format(i))
+#                plt.savefig('res/{:05d}.png'.format(i))
 
             #idk why I have to do this
             if i == (len(experiment.expert_dataset)-1):

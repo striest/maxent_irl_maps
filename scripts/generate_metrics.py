@@ -9,7 +9,11 @@ import scipy.interpolate
 
 from torch_mpc.models.steer_setpoint_kbm import SteerSetpointKBM
 from torch_mpc.algos.batch_mppi import BatchMPPI
-from torch_mpc.cost_functions.waypoint_costmap import WaypointCostMapCostFunction
+
+from torch_mpc.cost_functions.generic_cost_function import CostFunction
+from torch_mpc.cost_functions.cost_terms.costmap_projection import CostmapProjection
+from torch_mpc.cost_functions.cost_terms.valuemap_projection import ValueMapProjection
+from torch_mpc.cost_functions.cost_terms.euclidean_distance_to_goal import EuclideanDistanceToGoal
 
 from maxent_irl_costmaps.dataset.maxent_irl_dataset import MaxEntIRLDataset
 from maxent_irl_costmaps.dataset.global_state_visitation_buffer import GlobalStateVisitationBuffer
@@ -31,12 +35,29 @@ if __name__ == '__main__':
     parser.add_argument('--odom_topic', type=str, required=False, default='/integrated_to_init', help='topic to extract odom from')
     parser.add_argument('--image_topic', type=str, required=False, default='/multisense/left/image_rect_color', help='topic to extract images from')
     parser.add_argument('--baseline', action='store_true', required=False, help='set this flag to run baseline map')
+    parser.add_argument('--no_costmap', action='store_true', required=False, help='set this flag to run with no costmap i.e. just go to goal')
+    parser.add_argument('--constraint', action='store_true', required=False, help='set this flag to run with constraint')
+    parser.add_argument('--value_iteration', action='store_true', required=False, help='set this flag to use costmap + value iteration as the MPPI cost function')
     parser.add_argument('--viz', action='store_true', required=False, help='set this flag to visualize output')
     parser.add_argument('--device', type=str, required=False, default='cpu', help='device to run script on')
     args = parser.parse_args()
 
     model = torch.load(args.model_fp, map_location='cpu').to(args.device)
     model.network.eval()
+
+    if args.constraint:
+        model.set_constraint_threshold()
+
+    if args.value_iteration:
+        model.mppi.cost_fn = CostFunction([
+            (1.0, CostmapProjection()),
+            (10.0, ValueMapProjection())
+        ]).to(args.device)
+
+    if args.no_costmap:
+        model.mppi.cost_fn = CostFunction([
+            (10.0, EuclideanDistanceToGoal())
+        ]).to(args.device)
 
     dataset = MaxEntIRLDataset(bag_fp=args.bag_fp, preprocess_fp=args.preprocess_fp, map_features_topic=args.map_topic, odom_topic=args.odom_topic, image_topic=args.image_topic, horizon=model.expert_dataset.horizon, feature_keys=model.expert_dataset.feature_keys).to(args.device)
 
@@ -61,5 +82,6 @@ if __name__ == '__main__':
 #        dataset.visualize()
 #        plt.show()
 
-    res, fig = get_metrics(model, gsv, metrics, frame_skip=1, viz=args.viz)
+    res = get_metrics(model, gsv, metrics, frame_skip=10, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
+#    res = get_metrics(model, gsv, metrics, frame_skip=200, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
     torch.save(res, os.path.join(args.save_fp, 'metrics.pt'))

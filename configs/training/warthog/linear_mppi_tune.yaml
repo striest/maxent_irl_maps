@@ -1,0 +1,94 @@
+experiment:
+    save_to: /home/atv/Desktop/experiments/warthog_maxent_irl
+    name: linear_local_perception
+    device: cuda
+    epochs: 10
+    steps_per_epoch: -1
+    save_every: 1
+
+algo:
+    type: MPPIIRLSpeedmaps
+    params:
+        mppi_itrs: 10
+        batch_size: 12
+        reg_coeff: 1.0e-08
+        speed_coeff: 0.0
+        grad_clip: 1.0
+
+dataset:
+    type: MaxEntIRLDataset
+    params:
+        bag_fp: /home/atv/Desktop/datasets/warthog_irl/rosbags_local_perception
+        preprocess_fp: /home/atv/Desktop/datasets/warthog_irl/torch_train
+        map_features_topic: /local_gridmap
+        odom_topic: /warthog5/odom
+        image_topic: /warthog5/stereo_left/image_rect_color/compressed
+        horizon: 75
+        dt: 0.25
+        feature_keys:
+            - height_low
+            - height_mean
+            - height_high
+            - height_max
+            - diff
+            - terrain
+            - terrain_slope
+            - roughness
+            - SVD1
+            - SVD2
+            - SVD3
+            - unknown
+            - npts
+            - log_npts
+
+network:
+    type: LinearCostmapSpeedmapEnsemble2
+    params:
+        ensemble_dim: 8
+        activation_type: none
+        activation_scale: 1.0
+        dropout: 0.0
+
+netopt:
+    type: AdamW
+    params: {}
+
+cost_function:
+    terms:
+        - type: CostmapProjection
+          weight: 1.0
+          params:
+
+        - type: EuclideanDistanceToGoal
+          weight: 10.0
+          params:
+
+#model:
+#    type: SkidSteer
+#    params:
+#        v_lim: [0.0, 3.0]
+#        w_lim: [-2.0, 2.0]
+
+model:
+    type: SteerSetpointKBM
+    params:
+        L: 1.0
+        v_target_lim: [0.0, 3.0]
+        steer_lim: [-0.5, 0.5]
+        steer_rate_lim: 1.0
+        v_Kp: 1.0
+        w_Kp: 10.0
+
+trajopt:
+    type: BatchMPPI
+    params: 
+        num_samples: 2048
+        control_params:
+            sys_noise: [0.3, 0.4]
+            temperature: 0.04
+            use_ou: True
+            ou_alpha: 0.9
+            ou_scale: 10.0
+            d_ou_scale: 5.0
+
+metrics:

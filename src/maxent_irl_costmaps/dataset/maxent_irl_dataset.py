@@ -183,8 +183,8 @@ class MaxEntIRLDataset(Dataset):
         metadata = data['metadata']
         xmin = metadata['origin'][0].cpu()
         ymin = metadata['origin'][1].cpu()
-        xmax = xmin + metadata['width']
-        ymax = ymin + metadata['height']
+        xmax = xmin + metadata['width'].cpu()
+        ymax = ymin + metadata['height'].cpu()
 
         
         for ax, feat, feat_key in zip(axs, feats, self.feature_keys):

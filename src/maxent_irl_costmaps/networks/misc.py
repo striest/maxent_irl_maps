@@ -4,6 +4,17 @@ import torch
 
 from torch import nn
 
+class ShiftedELU(nn.Module):
+    """
+    ELU, but have the min value be +1 for value iteration
+    """
+    def __init__(self, shift=2.0):
+        super(ShiftedELU, self).__init__()
+        self.shift = shift
+
+    def forward(self, x):
+        return torch.nn.functional.elu(x) + self.shift
+
 class Exponential(nn.Module):
     """
     Try exponentiating
