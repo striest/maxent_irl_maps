@@ -1,6 +1,6 @@
 experiment:
     save_to: /home/atv/Desktop/experiments/yamaha_maxent_irl/
-    name: raer_1layer_resnet_swath_state_visitations_and_cost
+    name: cost_swath_point_state_visitations
     device: cuda
     epochs: 10
     steps_per_epoch: -1
@@ -19,7 +19,7 @@ dataset:
     type: MaxEntIRLDataset
     params:
         bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/rosbags_train
-        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/torch_debug
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/torch_train_h75
         map_features_topic: /local_gridmap
         odom_topic: /integrated_to_init
         image_topic: /multisense/left/image_rect_color
@@ -37,14 +37,13 @@ dataset:
             - SVD2
             - SVD3
             - unknown
-            - ego_speed
 
 network:
     type: ResnetCostmapSpeedmapCNNEnsemble2
     params:
-        ensemble_dim: 16
-        hidden_channels: [256]
-        hidden_activation: relu
+        ensemble_dim: 8
+        hidden_channels: [128]
+        hidden_activation: elu
         activation_type: none
         activation_scale: 1.0
         dropout: 0.2
@@ -55,9 +54,11 @@ netopt:
 
 cost_function:
     terms:
-        - type: CostmapProjection
+        - type: SwathedCostmapProjection
           weight: 1.0
           params:
+              xs: [-2.3622, 1.6002, 7]
+              ys: [-0.7620, 0.7620, 5]
 
         - type: EuclideanDistanceToGoal
           weight: 10.0

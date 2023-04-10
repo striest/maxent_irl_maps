@@ -71,7 +71,7 @@ def get_speedmap(trajs, map_metadata, weights=None):
 
     return speed_counts
 
-def get_state_visitations(trajs, map_metadata, weights = None):
+def get_state_visitations(trajs, map_metadata, weights = None, footprint = None):
     """
     Given a set of trajectories and map metadata, compute the visitations on the map for each traj.
     Args:
@@ -82,8 +82,23 @@ def get_state_visitations(trajs, map_metadata, weights = None):
     if weights is None:
         weights = torch.ones(trajs.shape[0], device=trajs.device) / trajs.shape[0]
 
-    xs = trajs[...,0]
-    ys = trajs[...,1]
+    if footprint is not None:
+        batch_dims = trajs.shape[:-1]
+        rot = trajs[..., 2]
+        R = torch.stack([
+            torch.stack([rot.cos(), -rot.sin()], dim=-1),
+            torch.stack([rot.sin(), rot.cos()], dim=-1),
+        ], dim=-2).view(*batch_dims, 1, 2, 2) #[B x K x T x 1 x 2 x 2]
+
+        footprint_unsqueeze = footprint.view(1, 1, *footprint.shape, 1)
+        footprint_rot = torch.matmul(R, footprint_unsqueeze).squeeze(-1) #[B x K x T x F x 2]
+        pos_unsqueeze = trajs[..., [0, 1]].unsqueeze(-2) + footprint_rot
+        xs = pos_unsqueeze[..., 0].flatten(start_dim=-2)
+        ys = pos_unsqueeze[..., 1].flatten(start_dim=-2)
+    else:
+        xs = trajs[...,0]
+        ys = trajs[...,1]
+
     res = map_metadata['resolution']
     ox = map_metadata['origin'][0].item()
     oy = map_metadata['origin'][1].item()
@@ -97,7 +112,7 @@ def get_state_visitations(trajs, map_metadata, weights = None):
     # 1 iff. valid
     valid_mask = (xidxs >= 0) & (xidxs < ny) & (yidxs >= 0) & (yidxs < nx)
 
-    binweights = torch.ones(trajs.shape[:-1], device=trajs.device) * weights.view(-1, 1) * valid_mask.float()
+    binweights = torch.ones(xs.shape, device=trajs.device) * weights.view(-1, 1) * valid_mask.float()
     flat_binweights = binweights.flatten()
 
     flat_visits = (nx * yidxs + xidxs).flatten().clamp(0, nx*ny - 1).long()
@@ -107,12 +122,12 @@ def get_state_visitations(trajs, map_metadata, weights = None):
     visit_counts = bins.view(nx, ny)
     visitation_probs = visit_counts / visit_counts.sum()
 
-    #debug
+#    #debug
 #    with torch.no_grad():
 #        import matplotlib.pyplot as plt
 #        fig, axs = plt.subplots(1, 2)
 #        for traj in trajs:
-#            axs[0].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='b', alpha=0.1)
+#            axs[0].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='b', alpha=1.0)
 #        axs[0].imshow(visitation_probs.cpu(), origin='lower', extent=(ox, ox+map_metadata['width'], oy, oy+map_metadata['height']))
 #        axs[1].imshow(visitation_probs.cpu(), origin='lower', extent=(ox, ox+map_metadata['width'], oy, oy+map_metadata['height']))
 #        plt.show()

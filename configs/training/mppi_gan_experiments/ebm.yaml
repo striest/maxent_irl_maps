@@ -15,8 +15,8 @@ algo:
 dataset:
     type: MaxEntIRLDataset
     params:
-        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/rosbags_test
-        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/torch_test_h75
+        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/rosbags_train
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_perception_res/torch_train_h75
         map_features_topic: /local_gridmap
         odom_topic: /integrated_to_init
         image_topic: /multisense/left/image_rect_color
@@ -41,7 +41,7 @@ network:
     params:
         insize: [1350]
         outsize: [75]
-        hiddens: [128, ]
+        hiddens: [256, 128]
 
 netopt:
     type: AdamW

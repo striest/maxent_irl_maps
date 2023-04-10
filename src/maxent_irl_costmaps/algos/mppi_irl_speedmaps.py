@@ -42,7 +42,7 @@ class MPPIIRLSpeedmaps:
             d. Get empirical feature counts from the MPPI solver (maybe try the weighted trick)
         e. Match feature expectations
     """
-    def __init__(self, network, opt, expert_dataset, mppi, mppi_itrs=10, batch_size=64, speed_coeff=1.0, reg_coeff=1e-2, grad_clip=1., device='cpu'):
+    def __init__(self, network, opt, expert_dataset, mppi, mppi_itrs=10, batch_size=64, speed_coeff=1.0, reg_coeff=1e-2, grad_clip=1., footprint_xs=None, footprint_ys=None, device='cpu'):
         """
         Args:
             network: the network to use for predicting costmaps
@@ -53,6 +53,15 @@ class MPPIIRLSpeedmaps:
         self.expert_dataset = expert_dataset
         self.mppi = mppi
         self.mppi_itrs = mppi_itrs
+
+        if footprint_xs and footprint_ys:
+            self.footprint = torch.stack(torch.meshgrid(
+                torch.linspace(*footprint_xs),
+                torch.linspace(*footprint_ys),
+                indexing='ij'
+            ), dim=-1).view(-1, 2)
+        else:
+            self.footprint = torch.zeros(1, 2)
 
         self.network = network
 
@@ -98,7 +107,7 @@ class MPPIIRLSpeedmaps:
                     'width': batch['metadata']['width'].mean().item(),
                     'origin': batch['metadata']['origin'][bi]
                 }
-                esv = get_state_visitations(expert_traj[bi].unsqueeze(0), map_params_b)
+                esv = get_state_visitations(expert_traj[bi].unsqueeze(0), map_params_b, footprint=self.footprint)
                 expert_state_visitations.append(esv)
 
             expert_state_visitations = torch.stack(expert_state_visitations, dim=0)
@@ -188,8 +197,8 @@ class MPPIIRLSpeedmaps:
                 'width': batch['metadata']['width'].mean().item(),
                 'origin': batch['metadata']['origin'][bi]
             }
-            lsv = get_state_visitations(trajs[bi], map_params_b, weights[bi])
-            esv = get_state_visitations(expert_traj[bi].unsqueeze(0), map_params_b)
+            lsv = get_state_visitations(trajs[bi], map_params_b, weights[bi], footprint=self.footprint)
+            esv = get_state_visitations(expert_traj[bi].unsqueeze(0), map_params_b, footprint=self.footprint)
             learner_state_visitations.append(lsv)
             expert_state_visitations.append(esv)
 
@@ -336,6 +345,7 @@ class MPPIIRLSpeedmaps:
         self.expert_dataset = self.expert_dataset.to(device)
         self.mppi = self.mppi.to(device)
         self.network = self.network.to(device)
+        self.footprint = self.footprint.to(device)
         return self
 
 if __name__ == '__main__':

@@ -19,6 +19,7 @@ from maxent_irl_costmaps.dataset.maxent_irl_dataset import MaxEntIRLDataset
 from maxent_irl_costmaps.dataset.global_state_visitation_buffer import GlobalStateVisitationBuffer
 from maxent_irl_costmaps.os_utils import maybe_mkdir
 from maxent_irl_costmaps.metrics.metrics import *
+from maxent_irl_costmaps.metrics.metrics_ebm import *
 
 from maxent_irl_costmaps.networks.baseline_lethal_height import LethalHeightCostmap
 
@@ -72,16 +73,16 @@ if __name__ == '__main__':
     metrics = {
         'expert_cost':expert_cost,
         'learner_cost':learner_cost,
-        'traj':position_distance,
-        'kl':kl_divergence,
-        'kl_global':kl_divergence_global,
-        'mhd': modified_hausdorff_distance
+        'mhd': modified_hausdorff_distance,
+        's_rmse': speed_rmse,
+        'mhd_s': modified_hausdorff_distance_speed,
     }
 
 #    for i in range(100):
 #        dataset.visualize()
 #        plt.show()
 
-    res = get_metrics(model, gsv, metrics, frame_skip=10, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
-#    res = get_metrics(model, gsv, metrics, frame_skip=200, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
+#    res = get_metrics_ebm(model, gsv, metrics, frame_skip=1, viz=args.viz)
+    res = get_metrics(model, gsv, metrics, frame_skip=1, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
+#    res = get_metrics(model, gsv, metrics, frame_skip=100, vf_downsample=4 if args.value_iteration else -1, viz=args.viz)
     torch.save(res, os.path.join(args.save_fp, 'metrics.pt'))

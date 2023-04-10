@@ -16,6 +16,7 @@ from torch_mpc.algos.batch_actlib_mppi import BatchActlibMPPI
 from torch_mpc.cost_functions.generic_cost_function import CostFunction
 from torch_mpc.cost_functions.cost_terms.euclidean_distance_to_goal import EuclideanDistanceToGoal
 from torch_mpc.cost_functions.cost_terms.costmap_projection import CostmapProjection
+from torch_mpc.cost_functions.cost_terms.swathed_costmap_projection import SwathedCostmapProjection
 from torch_mpc.cost_functions.cost_terms.ebm import EBMCost, ShapedEBMCost
 
 from maxent_irl_costmaps.algos.mppi_irl_speedmaps import MPPIIRLSpeedmaps
@@ -172,6 +173,11 @@ def setup_experiment(fp):
             terms.append((
                 term['weight'],
                 CostmapProjection(**params)
+            ))
+        elif term['type'] == 'SwathedCostmapProjection':
+            terms.append((
+                term['weight'],
+                SwathedCostmapProjection(**params)
             ))
         elif term['type'] == 'EBMCost':
             terms.append((
