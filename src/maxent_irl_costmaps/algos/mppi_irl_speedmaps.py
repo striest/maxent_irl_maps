@@ -292,7 +292,10 @@ class MPPIIRLSpeedmaps:
             fig, axs = plt.subplots(2, 3, figsize=(18, 12))
             axs = axs.flatten()
             
-            idx = self.expert_dataset.feature_keys.index('height_high')
+            if 'height_high' in self.expert_dataset.feature_keys:
+                idx = self.expert_dataset.feature_keys.index('height_high')
+            else:
+                idx = 0
             
             axs[0].imshow(data['image'].permute(1, 2, 0)[:, :, [2, 1, 0]].cpu())
             axs[1].imshow(map_features[tidx][idx].cpu(), origin='lower', cmap='gray', extent=(xmin, xmax, ymin, ymax))

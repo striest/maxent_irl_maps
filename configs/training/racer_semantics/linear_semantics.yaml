@@ -1,8 +1,8 @@
 experiment:
-    save_to: /home/atv/Desktop/experiments/warthog_maxent_irl
-    name: resnet_voxel_mapping
+    save_to: /home/atv/Desktop/experiments/yamaha_maxent_irl/semantics
+    name: linear_semantics_geometry
     device: cuda
-    epochs: 10
+    epochs: 5
     steps_per_epoch: -1
     save_every: 1
 
@@ -11,20 +11,19 @@ algo:
     params:
         mppi_itrs: 10
         batch_size: 12
-        reg_coeff: 1.0e-08
+        reg_coeff: 0.0
         speed_coeff: 0.0
-        grad_clip: 1.0
+        grad_clip: 1000000.0
 
 dataset:
     type: MaxEntIRLDataset
     params:
-        bag_fp: /home/atv/Desktop/datasets/warthog_irl/rosbags_train
-        preprocess_fp: /home/atv/Desktop/datasets/warthog_irl/torch_train
+        bag_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_semantics/rosbags_train
+        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/racer_semantics/torch_train
         map_features_topic: /local_gridmap
         odom_topic: /integrated_to_init
-        image_topic: /warty/stereo_left/image_rect_color/compressed
+        image_topic: /multisense/left/image_rect_color
         horizon: 75
-        dt: 0.25
         feature_keys:
             - height_low
             - height_mean
@@ -38,15 +37,17 @@ dataset:
             - SVD2
             - SVD3
             - unknown
-#            - npts
-#            - log_npts
+            - semantic_unknown
+            - semantic_label_2 #trail
+            - semantic_label_3 #grass
+            - semantic_label_4 #low veg
+            - semantic_label_5 #high veg
+            - semantic_label_6 #obstacle
 
 network:
-    type: ResnetCostmapSpeedmapCNNEnsemble2
+    type: LinearCostmapSpeedmapEnsemble2
     params:
-        ensemble_dim: 8
-        hidden_channels: [128]
-        hidden_activation: elu
+        ensemble_dim: 16
         activation_type: none
         activation_scale: 1.0
         dropout: 0.0
@@ -62,36 +63,29 @@ cost_function:
           params:
 
         - type: EuclideanDistanceToGoal
-          weight: 50.0
+          weight: 10.0
           params:
 
 model:
-    type: SkidSteer
+    type: SteerSetpointKBM
     params:
-        v_lim: [0.0, 3.0]
-        w_lim: [-1.0, 1.0]
-
-#model:
-#    type: SteerSetpointKBM
-#    params:
-#        L: 1.0
-#        v_target_lim: [0.0, 4.0]
-#        steer_lim: [-1.0, 1.0]
-#        steer_rate_lim: 1.0
-#        v_Kp: 10.0
-#        w_Kp: 10.0
+        L: 2.94
+        v_target_lim: [2.0, 15.0]
+        steer_lim: [-0.5, 0.5]
+        steer_rate_lim: 0.5
+        v_Kp: 1.0
+        w_Kp: 10.0
 
 trajopt:
     type: BatchMPPI
     params: 
         num_samples: 2048
-        num_safe_timesteps: 0
         control_params:
-            sys_noise: [1.5, 1.0]
-            temperature: 0.04
+            sys_noise: [5.0, 0.25]
+            temperature: 0.05
             use_ou: True
             ou_alpha: 0.9
             ou_scale: 10.0
-            d_ou_scale: 5.0
+            d_ou_scale: 2.0
 
 metrics:

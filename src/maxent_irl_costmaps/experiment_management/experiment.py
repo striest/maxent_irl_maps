@@ -31,7 +31,7 @@ class Experiment:
         maybe_mkdir(self.base_fp, True)
 
     def run(self):
-#        for i in range(5):
+#        for i in range(15):
 #            self.algo.expert_dataset.visualize()
 #            plt.show()
 

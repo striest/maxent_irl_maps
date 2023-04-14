@@ -21,7 +21,7 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, vf_downsa
         metric_fns: A dict of {label:function} (the ones defined in this file) to use to compute metrics
     """
 #    plt.show(block=False)
-    baseline = LethalHeightCostmap(experiment.expert_dataset).to(experiment.device)
+#    baseline = LethalHeightCostmap(experiment.expert_dataset).to(experiment.device)
 
     metrics_res = {k:[] for k in metric_fns.keys()}
 
@@ -155,7 +155,11 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, vf_downsa
             axs[1].set_title('costmap')
             axs[1].legend()
 
-            idx = experiment.expert_dataset.feature_keys.index('height_high')
+            if 'height_high' in experiment.expert_dataset.feature_keys:
+                idx = experiment.expert_dataset.feature_keys.index('height_high')
+            else:
+                idx = 0
+
             axs[2].imshow(map_features[0, idx].cpu(), origin='lower', cmap='gray', extent=(xmin, xmax, ymin, ymax))
             axs[2].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
             axs[2].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g', label='learner')
