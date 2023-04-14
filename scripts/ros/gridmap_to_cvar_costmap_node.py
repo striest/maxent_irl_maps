@@ -15,7 +15,7 @@ class CvarCostmapperNode:
     Node that listens to gridmaps from perception and uses IRL nets to make them into costmaps
     In addition to the baseline costmappers, take in a CVaR value from -1.0 to 1.0 and use an ensemble of costmaps
     """
-    def __init__(self, grid_map_topic, cost_map_topic, odom_topic, cvar_topic, dataset, network, obstacle_threshold, vmin, vmax, publish_gridmap, device):
+    def __init__(self, grid_map_topic, cost_map_topic, odom_topic, cvar_topic, dataset, network, obstacle_threshold, cost_min, cost_max, publish_gridmap, device):
         """
         Args:
             grid_map_topic: the topic to get map features from
@@ -24,8 +24,8 @@ class CvarCostmapperNode:
             cvar_topic: The topic to listen to CVaR from
             dataset: The dataset that the network was trained on. (Need to get feature mean/var)
             obstacle_threshold: value above which cells are treated as infinite-cost obstacles
-            vmin: For viz, this quantile of the costmap is set as 0 cost
-            vmax: For viz, this quantile of the costmaps is set as 1 cost
+            cost_min:re-scale cost from 0-100 with this as min
+            cost_max:re-scale cost from 0-100 wth this as max
             publish_gridmap: If true, publish costmap as a GridMap, else OccupancyGrid
             network: the network to produce costmaps.
         """
@@ -36,8 +36,12 @@ class CvarCostmapperNode:
         self.network = network.to(device)
         self.obstacle_threshold = obstacle_threshold
 
-        self.vmin = vmin
-        self.vmax = vmax
+        self.cost_min = cost_min
+        self.cost_max = cost_max
+        self.rescale_cost = (cost_max-cost_min) < 1e8
+
+        print(self.cost_min, self.cost_max, self.rescale_cost)
+
         self.cvar = 0.
 
         self.publish_gridmap = publish_gridmap
@@ -106,21 +110,19 @@ class CvarCostmapperNode:
         #experiment w/ normalizing
         rospy.loginfo_throttle(1.0, "min = {:.4f}, max = {:.4f}".format(cvar_costmap.min(), cvar_costmap.max()))
 
-        vmin_val = torch.quantile(cvar_costmap, self.vmin)
-        vmax_val = torch.quantile(cvar_costmap, self.vmax)
-
         #convert to occgrid scaling. Also apply the obstacle threshold
         mask = (cvar_costmap >=self.obstacle_threshold).cpu().numpy()
-        costmap_viz = (100. * (cvar_costmap - vmin_val) / (vmax_val - vmin_val)).clip(0., 100.).long().cpu().numpy()
-        costmap_viz[mask] = 100
-        costmap_occgrid = (cvar_costmap).long().cpu().numpy()
+
+        if self.rescale_cost:
+            rospy.loginfo_throttle(1.0, 'rescale cost')
+            costmap_occgrid = 100 * ((cvar_costmap - self.cost_min)/(self.cost_max - self.cost_min)).clamp(0., 1.)
+        else:
+            costmap_occgrid = cvar_costmap
+
         costmap_occgrid[mask] = 100
 
         costmap_msg = self.costmap_to_gridmap(costmap_occgrid, msg) if self.publish_gridmap else self.costmap_to_occgrid(costmap_occgrid, msg)
         self.cost_map_pub.publish(costmap_msg)
-
-        costmap_viz_msg = self.costmap_to_occgrid(costmap_viz, msg)
-        self.cost_map_viz_pub.publish(costmap_viz_msg)
 
         t2 = rospy.Time.now().to_sec()
         rospy.loginfo_throttle(1.0, "inference time: {:.4f}s".format(t2-t1))
@@ -155,7 +157,7 @@ class CvarCostmapperNode:
                 stride=costmap.shape[0] * costmap.shape[1]
             )
         )
-        costmap_layer_msg.data = costmap[::-1, ::-1].flatten()
+        costmap_layer_msg.data = costmap.cpu().numpy()[::-1, ::-1].flatten()
         costmap_msg.data.append(costmap_layer_msg)
         return costmap_msg
 
@@ -176,7 +178,7 @@ class CvarCostmapperNode:
         costmap_msg.info.origin.position.x = msg.info.pose.position.x - msg.info.length_x/2.
         costmap_msg.info.origin.position.y = msg.info.pose.position.y - msg.info.length_y/2.
         costmap_msg.info.origin.position.z = self.current_height
-        costmap_msg.data = costmap.flatten()
+        costmap_msg.data = costmap.long().cpu().numpy().flatten()
         return costmap_msg
 
 if __name__ == '__main__':
@@ -187,10 +189,10 @@ if __name__ == '__main__':
     cost_map_topic = rospy.get_param('~costmap_topic')
     odom_topic = rospy.get_param('~odom_topic')
     cvar_topic = rospy.get_param('~cvar_topic')
+    cost_min = rospy.get_param('~cost_min', -1e10)
+    cost_max = rospy.get_param('~cost_max', 1e10)
 
     obstacle_threshold = rospy.get_param('~obstacle_threshold') #values above this are treated as obstacle and assigned a special value (127)
-    vmin = rospy.get_param('~viz_vmin', 0.2) #values below this quantile are viz-ed as 0
-    vmax = rospy.get_param('~viz_vmax', 0.9) #values above this quantile are viz-ed as 1
 
     publish_gridmap = rospy.get_param('~publish_gridmap')
 
@@ -198,6 +200,6 @@ if __name__ == '__main__':
     mppi_irl = torch.load(model_fp, map_location=device)
     mppi_irl.network.eval()
 
-    costmapper = CvarCostmapperNode(grid_map_topic, cost_map_topic, odom_topic, cvar_topic, mppi_irl.expert_dataset, mppi_irl.network, obstacle_threshold, vmin, vmax, publish_gridmap, device)
+    costmapper = CvarCostmapperNode(grid_map_topic, cost_map_topic, odom_topic, cvar_topic, mppi_irl.expert_dataset, mppi_irl.network, obstacle_threshold, cost_min, cost_max, publish_gridmap, device)
 
     rospy.spin()

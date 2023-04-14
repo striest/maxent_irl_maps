@@ -2,17 +2,21 @@
 
 <launch>
     <!-- File management -->
-	<arg name="model_fp" default="../models/yamaha/icra_resnet.pt"/>
-    <arg name="obstacle_threshold" default="10.0"/>
+	<arg name="model_fp" default="../models/warthog/20230410_warthog.pt"/>
+    <arg name="obstacle_threshold" default="25.0"/>
     <arg name="publish_gridmap" default="true"/>
     <arg name="device" default="cuda"/>
+    <arg name="cost_min" default="-1e10"/>
+    <arg name="cost_max" default="1e10"/>
 
 	<node pkg="maxent_irl_maps" type="gridmap_to_cvar_costmap_node.py" name="maxent_irl_node" output="screen"> 
         <param name="model_fp" value="$(dirname)/$(arg model_fp)"/>
 	    <param name="gridmap_topic" value="/local_gridmap"/>
-        <param name="costmap_topic" value="/local_costmap"/>
+        <param name="costmap_topic" value="/local_irl_costmap"/>
         <param name="odom_topic" value="/integrated_to_init"/>
         <param name="cvar_topic" value="/irl_cvar"/>
+        <param name="cost_min" value="$(arg cost_min)"/>
+        <param name="cost_max" value="$(arg cost_max)"/>
         <param name="obstacle_threshold" value="$(arg obstacle_threshold)"/>
         <param name="publish_gridmap" value="$(arg publish_gridmap)"/>
         <param name="device" value="$(arg device)"/>
