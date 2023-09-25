@@ -88,25 +88,26 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             expert_state_visitations = get_state_visitations(expert_traj.unsqueeze(0), metadata)
 
             #GET GLOBAL STATE VISITATIONS
-            gps_x0 = data['gps_traj'][[0]]
-            expert_x0 = expert_traj[[0]]
+#            gps_x0 = data['gps_traj'][[0]]
+#            expert_x0 = expert_traj[[0]]
 
             #calculate the rotation offset to account for frame diff in SO and GPS
-            yaw_offset = quat_to_yaw(expert_x0[:, 3:7]) - quat_to_yaw(gps_x0[:, 3:7])
-            poses = torch.stack([
-                gps_x0[:, 0],
-                gps_x0[:, 1],
-                -yaw_offset
-            ], axis=-1)
+#            yaw_offset = quat_to_yaw(expert_x0[:, 3:7]) - quat_to_yaw(gps_x0[:, 3:7])
+#            poses = torch.stack([
+#                gps_x0[:, 0],
+#                gps_x0[:, 1],
+#                -yaw_offset
+#            ], axis=-1)
 
-            crop_params = {
-                'origin':np.array([-map_params['height'][0].item()/2, -map_params['width'][0].item()/2]),
-                'length_x': map_params['height'][0].item(),
-                'length_y': map_params['width'][0].item(),
-                'resolution': map_params['resolution'][0].item()
-            }
+#            crop_params = {
+#                'origin':np.array([-map_params['height'][0].item()/2, -map_params['width'][0].item()/2]),
+#                'length_x': map_params['height'][0].item(),
+#                'length_y': map_params['width'][0].item(),
+#                'resolution': map_params['resolution'][0].item()
+#            }
 
-            global_state_visitations = gsv.get_state_visitations(poses, crop_params, local=True)[0]
+#            global_state_visitations = gsv.get_state_visitations(poses, crop_params, local=True)[0]
+            global_state_visitations = expert_state_visitations
 
             for k, fn in metric_fns.items():
                 metrics_res[k].append(fn(costmap, expert_traj, traj, expert_state_visitations, learner_state_visitations, global_state_visitations).cpu().item())
@@ -127,7 +128,8 @@ def get_metrics(experiment, gsv = None, metric_fns = {}, frame_skip=1, viz=True)
             axs[0].imshow(data['image'].permute(1, 2, 0)[:, :, [2, 1, 0]].cpu())
             axs[0].set_title('FPV')
 
-            axs[1].imshow(costmap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmax=30.)
+#            axs[1].imshow(costmap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmax=30.)
+            axs[1].imshow(costmap[0].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmin=-5., vmax=5.)
             axs[1].plot(expert_traj[:, 0].cpu(), expert_traj[:, 1].cpu(), c='y', label='expert')
             axs[1].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g', label='learner')
             axs[1].set_title('costmap')

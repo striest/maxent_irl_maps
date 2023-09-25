@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from torch_mpc.models.steer_setpoint_kbm import SteerSetpointKBM
 from torch_mpc.models.skid_steer import SkidSteer
+from torch_mpc.models.pointmass import KinematicPointMass
 
 from torch_mpc.algos.batch_mppi import BatchMPPI
 
@@ -116,8 +117,10 @@ def setup_experiment(fp):
     netopt_params = experiment_dict['netopt']
     if netopt_params['type'] == 'Adam':
         res['netopt'] = torch.optim.Adam(res['network'].parameters(), **netopt_params['params'])
-    if netopt_params['type'] == 'AdamW':
+    elif netopt_params['type'] == 'AdamW':
         res['netopt'] = torch.optim.AdamW(res['network'].parameters(), **netopt_params['params'])
+    elif netopt_params['type'] == 'SGD':
+        res['netopt'] = torch.optim.SGD(res['network'].parameters(), **netopt_params['params'])
     else:
         print('Unsupported netopt type {}'.format(netopt_params['type']))
         exit(1)
@@ -128,6 +131,8 @@ def setup_experiment(fp):
         res['model'] = SteerSetpointKBM(**model_params['params']).to(device)
     elif model_params['type'] == 'SkidSteer':
         res['model'] = SkidSteer(**model_params['params']).to(device)
+    elif model_params['type'] == 'KinematicPointMass':
+        res['model'] = KinematicPointMass(**model_params['params']).to(device)
     else:
         print('Unsupported model type {}'.format(model_params['type']))
         exit(1)

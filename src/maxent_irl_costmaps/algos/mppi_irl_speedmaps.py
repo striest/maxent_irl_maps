@@ -243,7 +243,8 @@ class MPPIIRLSpeedmaps:
             
             axs[0].imshow(data['image'].permute(1, 2, 0)[:, :, [2, 1, 0]].cpu())
             axs[1].imshow(map_features[tidx][idx].cpu(), origin='lower', cmap='gray', extent=(xmin, xmax, ymin, ymax))
-            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmin=0., vmax=30.)
+#            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax), vmin=-5., vmax=5.)
+            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax))
 #            m1 = axs[2].imshow(costmap[tidx].cpu(), origin='lower', cmap='plasma', extent=(xmin, xmax, ymin, ymax))
             m2 = axs[4].imshow(speedmap.loc[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
             m3 = axs[5].imshow(speedmap.scale[tidx].cpu(), origin='lower', cmap='bwr', extent=(xmin, xmax, ymin, ymax))
@@ -259,11 +260,11 @@ class MPPIIRLSpeedmaps:
             axs[5].plot(traj[:, 0].cpu(), traj[:, 1].cpu(), c='g')
 
             #plot expert speed
-            e_speeds = torch.linalg.norm(expert_traj[:, 7:10], axis=-1).cpu()
-            l_speeds = traj[:, 3].cpu()
-            times = torch.arange(len(e_speeds)) * self.mppi.model.dt
-            axs[3].plot(times, e_speeds, label='expert speed', c='y')
-            axs[3].plot(times, l_speeds, label='learner speed', c='g')
+#            e_speeds = torch.linalg.norm(expert_traj[:, 7:10], axis=-1).cpu()
+#            l_speeds = traj[:, 3].cpu()
+#            times = torch.arange(len(e_speeds)) * self.mppi.model.dt
+#            axs[3].plot(times, e_speeds, label='expert speed', c='y')
+#            axs[3].plot(times, l_speeds, label='learner speed', c='g')
 
             axs[0].set_title('FPV')
             axs[1].set_title('heightmap high')

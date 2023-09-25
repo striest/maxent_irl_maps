@@ -285,5 +285,7 @@ def load_data(bag_fp, map_features_topic, odom_topic, image_topic, horizon, dt, 
                 images.append(torch.tensor(img).permute(2, 0, 1)[[2, 1, 0]] / 255.)
 
         dataset['image'] = images
+    else:
+        dataset['image'] = [torch.ones(3, 1, 1) for x in map_target_times]
 
     return dataset, feature_keys

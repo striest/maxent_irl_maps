@@ -26,8 +26,8 @@ def get_speedmap(trajs, map_metadata, weights=None):
     res = map_metadata['resolution']
     ox = map_metadata['origin'][0].item()
     oy = map_metadata['origin'][1].item()
-    nx = int(map_metadata['width'] / res)
-    ny = int(map_metadata['height'] / res)
+    nx = round(map_metadata['width'] / res)
+    ny = round(map_metadata['height'] / res)
     width = max(nx, ny)
 
     xidxs = ((xs - ox) / res).long()
@@ -87,8 +87,8 @@ def get_state_visitations(trajs, map_metadata, weights = None):
     res = map_metadata['resolution']
     ox = map_metadata['origin'][0].item()
     oy = map_metadata['origin'][1].item()
-    nx = int(map_metadata['width'] / res)
-    ny = int(map_metadata['height'] / res)
+    nx = round((map_metadata['width'] / res))
+    ny = round((map_metadata['height'] / res))
     width = max(nx, ny)
 
     xidxs = ((xs - ox) / res).long()
@@ -138,8 +138,8 @@ def batch_get_state_visitations(trajs, map_metadata, weights = None):
     res = map_metadata['resolution']
     ox = map_metadata['origin'][..., 0]
     oy = map_metadata['origin'][..., 1]
-    nx = int(map_metadata['width'] / res)
-    ny = int(map_metadata['height'] / res)
+    nx = round(map_metadata['width'] / res)
+    ny = round(map_metadata['height'] / res)
     width = max(nx, ny)
 
     n_trailing_dims = len(xs.shape)-1

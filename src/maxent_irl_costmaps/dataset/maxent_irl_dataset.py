@@ -20,7 +20,7 @@ class MaxEntIRLDataset(Dataset):
 
     Ok, the ony diff now is that there are multiple bag files and we save the trajdata to a temporary pt file.
     """
-    def __init__(self, bag_fp, preprocess_fp, map_features_topic='/local_gridmap', odom_topic='/integrated_to_init', image_topic='/multisense/left/image_rect_color', horizon=70, dt=0.1, fill_value=0, feature_keys=[]):
+    def __init__(self, bag_fp, preprocess_fp, map_features_topic='/local_gridmap', odom_topic='/integrated_to_init', image_topic=None, horizon=70, dt=0.1, fill_value=0, feature_keys=[]):
         """
         Args:
             bag_fp: The bag to get data from

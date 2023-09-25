@@ -1,8 +1,8 @@
 experiment:
-    save_to: /home/atv/Desktop/experiments/yamaha_maxent_irl/
-    name: arl_sim_2layer_resnet_adamw_001_nopos
+    save_to: /home/atv/Desktop/experiments/warthog_maxent_irl
+    name: linear_highspeed_both
     device: cuda
-    epochs: 20
+    epochs: 10
     steps_per_epoch: -1
     save_every: 1
 
@@ -18,12 +18,13 @@ algo:
 dataset:
     type: MaxEntIRLDataset
     params:
-        bag_fp: /home/atv/Desktop/datasets/warthog_simulation_maxent_irl/rosbags_train
-        preprocess_fp: /home/atv/Desktop/datasets/yamaha_maxent_irl/big_gridmaps/torch_train
+        bag_fp: /home/atv/Desktop/datasets/warthog_irl/rosbags_train_high_speed
+        preprocess_fp: /home/atv/Desktop/datasets/warthog_irl/torch_train_high_speed
         map_features_topic: /local_gridmap
-        odom_topic: /warty/odom
-        image_topic: /warty/forward/image/compressed
+        odom_topic: /integrated_to_init
+        image_topic: /warty/stereo_left/image_rect_color/compressed
         horizon: 75
+        dt: 0.25
         feature_keys:
             - height_low
             - height_mean
@@ -37,17 +38,20 @@ dataset:
             - SVD2
             - SVD3
             - unknown
-            - ego_speed
+            - semantic_unknown
+            - semantic_label_2 #trail
+            - semantic_label_3 #grass
+            - semantic_label_4 #low veg
+            - semantic_label_5 #high veg
+            - semantic_label_6 #obstacle
 
 network:
-    type: ResnetCostmapSpeedmapCNNEnsemble2
+    type: LinearCostmapSpeedmapEnsemble2
     params:
-        ensemble_dim: 1
-        hidden_channels: [16, ]
-        hidden_activation: relu
+        ensemble_dim: 8
         activation_type: none
         activation_scale: 1.0
-        dropout: 0.2
+        dropout: 0.0
 
 netopt:
     type: AdamW
@@ -60,22 +64,23 @@ cost_function:
           params:
 
         - type: EuclideanDistanceToGoal
-          weight: 10.0
+          weight: 50.0
           params:
 
 model:
     type: SkidSteer
     params:
-        v_lim: [2.0, 5.0]
+        v_lim: [0.0, 5.0]
         w_lim: [-1.0, 1.0]
 
 trajopt:
     type: BatchMPPI
     params: 
         num_samples: 2048
+        num_safe_timesteps: 0
         control_params:
-            sys_noise: [2.0, 1.0]
-            temperature: 0.02
+            sys_noise: [2.0, 0.4]
+            temperature: 0.04
             use_ou: True
             ou_alpha: 0.9
             ou_scale: 10.0
